@@ -1,0 +1,357 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+  release:
+    types:
+    - created
+  workflow_dispatch:
+
+jobs:
+  build-ubuntu:
+    runs-on: ${{ matrix.config.runs_on }}
+    container: ${{ matrix.config.container }}
+    strategy:
+      fail-fast: false
+      matrix:
+        config:
+        - os: ubuntu-20.04
+          runs_on: ubuntu-22.04
+          container: "ubuntu:focal"
+        - os: ubuntu-22.04
+          runs_on: ubuntu-22.04
+          container: ""
+        - os: ubuntu-24.04
+          runs_on: ubuntu-24.04
+          container: ""
+        - os: debian-11
+          runs_on: ubuntu-latest
+          container: debian:bullseye-slim
+    env:
+      DEBIAN_FRONTEND: noninteractive
+    steps:
+    - name: install sudo and tzdata
+      if: ${{ matrix.config.container != '' }}
+      run: |
+        apt update
+        apt install sudo tzdata python3 git -y
+        ln -fs /usr/share/zoneinfo/Etc/UTC /etc/localtime
+        dpkg-reconfigure --frontend noninteractive tzdata
+    - uses: actions/checkout@v4
+      if: ${{ matrix.config.container == '' }}
+      with:
+        path: src
+        submodules: recursive
+    - uses: actions/checkout@v4
+      if: ${{ matrix.config.container != '' }}
+      with:
+        path: src
+    - uses: actions/checkout@v4
+      if: ${{ matrix.config.container != '' }}
+      with:
+        path: src/robdef
+        repository: robotraconteur/robotraconteur_standard_robdef
+    - uses: actions/checkout@v4
+      with:
+        path: rr-src
+        repository: robotraconteur/robotraconteur
+    - name: apt update
+      run: sudo apt update
+    - name: apt
+      run: >
+        sudo apt-get install
+        zlib1g zlib1g-dev libssl-dev libusb-1.0-0 ninja-build
+        libusb-1.0-0-dev libdbus-1-3 libdbus-1-dev libbluetooth3 libbluetooth-dev zlib1g zlib1g-dev
+        git cmake g++ make libboost-all-dev curl libgtest-dev doxygen libyaml-cpp-dev libeigen3-dev
+        ninja-build libopencv-dev -qq
+    - name: cmake rr
+      run: |
+        mkdir rr-build
+        cd rr-build
+        cmake -G Ninja -DCMAKE_BUILD_TYPE=Release -DBUILD_GEN=ON -DBUILD_TESTING=OFF ../rr-src
+    - name: cmake rr build
+      run: |
+        cmake --build rr-build --config Release
+        sudo cmake --build rr-build --target install --config Release
+    - name: cmake
+      run: |
+        mkdir build
+        cd build
+        cmake -G Ninja -DCMAKE_BUILD_TYPE=Release -DBUILD_DOCUMENATION=ON -DBULID_TESTING=ON ../src
+    - name: cmake build
+      run: cmake --build build --config Release
+    - name: cmake build docs
+      run: cmake --build build --config Release --target RobotRaconteurCompanion_doc
+    - name: cmake package source
+      run: cmake --build build --config Release --target package_source
+    - name: run ctest
+      working-directory: build
+      run: |
+        export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:$GITHUB_WORKSPACE/build
+        ctest . -C Release --output-on-failure
+    - name: archive docs
+      if: ${{ matrix.config.os == 'ubuntu-22.04' }}
+      uses: actions/upload-artifact@v4
+      with:
+        name: 'docs'
+        path: build/docs/html/*
+    - name: archive source archive
+      if: ${{ matrix.config.os == 'ubuntu-22.04' }}
+      uses: actions/upload-artifact@v4
+      with:
+        name: 'source'
+        path: |
+          build/*.tar.gz
+          build/*.zip
+    - name: make release
+      if: ${{ startsWith(github.ref, 'refs/tags/v') && matrix.config.os == 'ubuntu-20.04' }}
+      uses: softprops/action-gh-release@v2
+      with:
+        token: ${{ secrets.BOT_GITHUB_TOKEN }}
+        draft: true
+        files: |
+          build/*.tar.gz
+          build/*.zip
+
+  build-windows:
+    runs-on: windows-2022
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        path: src
+        submodules: recursive
+    - uses: actions/checkout@v4
+      with:
+        path: vcpkg-robotraconteur
+        repository: robotraconteur/vcpkg-robotraconteur
+    - name: vcpkg build
+      uses: johnwason/vcpkg-action@v7
+      id: vcpkg
+      with:
+        pkgs: robotraconteur yaml-cpp eigen3 gtest opencv
+        triplet: x64-windows-release
+        token: ${{ github.token }}
+        extra-args: --overlay-ports=${{ github.workspace }}/vcpkg-robotraconteur/ports
+    - uses: ilammy/msvc-dev-cmd@v1
+      with:
+        arch: x64
+    - name: cmake
+      run: >
+        cmake -G Ninja -S src -B build
+        ${{ steps.vcpkg.outputs.vcpkg-cmake-config }}
+        -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=ON
+        -DBULID_TESTING=ON
+    - name: cmake build
+      run: cmake --build build --config Release
+    - name: run ctest
+      working-directory: build
+      shell: cmd
+      run: |
+        set PATH=%PATH%;%GITHUB_WORKSPACE%\build
+        ctest . -C Release --output-on-failure
+  clang-tidy:
+    runs-on: ubuntu-22.04
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        path: src
+        submodules: recursive
+    - uses: actions/checkout@v4
+      with:
+        path: rr-src
+        repository: robotraconteur/robotraconteur
+    - name: apt update
+      run: sudo apt update
+    - name: apt
+      run: >
+        sudo apt-get install
+        zlib1g zlib1g-dev libssl-dev libusb-1.0-0 ninja-build
+        libusb-1.0-0-dev libdbus-1-3 libdbus-1-dev libbluetooth3 libbluetooth-dev
+        git cmake g++ make libboost-all-dev autoconf libyaml-cpp-dev libeigen3-dev
+        automake libtool bison libpcre3-dev curl libgtest-dev libopencv-dev -qq
+    - name: clang-tidy-14
+      run: |
+        wget https://apt.llvm.org/llvm.sh
+        chmod +x llvm.sh
+        sudo ./llvm.sh 14 all
+    - name: cmake rr
+      run: >
+        cmake -G Ninja -S rr-src -B rr-build
+        -DCMAKE_BUILD_TYPE=Debug
+        -DBUILD_GEN=ON -DBUILD_TESTING=OFF
+        -DCMAKE_CXX_STANDARD=11
+    - name: cmake rr build
+      run: |
+        cmake --build rr-build --config Debug
+        sudo cmake --install rr-build --config Debug
+    - name: configure
+      run: >
+        cmake -G Ninja -DBUILD_TESTING=ON
+        -DCMAKE_DISABLE_PRECOMPILE_HEADERS=ON -DCMAKE_CXX_CLANG_TIDY=clang-tidy-14
+        -DCMAKE_BUILD_TYPE=Debug
+        -S src -B build
+    - name: build
+      run: cmake --build build --config Debug -- -j 4
+  cppcheck:
+    runs-on: ubuntu-22.04
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        path: src
+        submodules: recursive
+    - uses: actions/checkout@v4
+      with:
+        path: rr-src
+        repository: robotraconteur/robotraconteur
+    - name: apt update
+      run: sudo apt update
+    - name: apt
+      run: >
+        sudo apt-get install
+        zlib1g zlib1g-dev libssl-dev libusb-1.0-0 ninja-build cppcheck
+        libusb-1.0-0-dev libdbus-1-3 libdbus-1-dev libbluetooth3 libbluetooth-dev
+        git cmake g++ make libboost-all-dev autoconf libyaml-cpp-dev libeigen3-dev
+        automake libtool bison libpcre3-dev curl libgtest-dev libopencv-dev -qq
+    - name: cmake rr
+      run: >
+        cmake -G Ninja -S rr-src -B rr-build
+        -DCMAKE_BUILD_TYPE=Debug
+        -DBUILD_GEN=ON -DBUILD_TESTING=OFF
+        -DCMAKE_CXX_STANDARD=11
+    - name: cmake rr build
+      run: |
+        cmake --build rr-build --config Debug
+        sudo cmake --install rr-build --config Debug
+    - name: configure
+      run: >
+        cmake -G Ninja -DBUILD_TESTING=ON
+        -DCMAKE_DISABLE_PRECOMPILE_HEADERS=ON -DCMAKE_BUILD_TYPE=Debug
+        -DCMAKE_CXX_CPPCHECK="/usr/bin/cppcheck;--enable=warning;--inconclusive;--force;--inline-suppr;-DBOOST_ASIO_MOVE_ARG(a)=;--error-exitcode=1;--std=c++11;RobotRaconteurCompanion"
+        -S src -B build
+    - name: build
+      run: cmake --build build --config Debug -- -j 4
+  pre-commit:
+    runs-on: ubuntu-22.04
+    env:
+      SKIP: no-commit-to-branch
+    steps:
+    - uses: actions/checkout@v4
+    - uses: actions/setup-python@v5
+      with:
+        python-version: '3.10'
+    - name: apt
+      run: |
+        sudo apt update
+        sudo apt install -y dos2unix
+    - uses: pre-commit/action@v3.0.1
+
+  build-old-ubuntu:
+    runs-on: ${{ matrix.config.runs_on }}
+    strategy:
+      fail-fast: false
+      matrix:
+        config:
+        - os: ubuntu-16.04
+          runs_on: ubuntu-latest
+          container: ubuntu:xenial
+        - os: ubuntu-18.04
+          runs_on: ubuntu-latest
+          container: ubuntu:bionic
+    env:
+      DEBIAN_FRONTEND: noninteractive
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        path: src/robotraconteur
+        repository: robotraconteur/robotraconteur
+    - uses: actions/checkout@v4
+      with:
+        submodules: recursive
+        path: src/robotraconteur_companion
+    - name: apt update
+      run: sudo apt update
+    - name: apt
+      run: >
+        sudo apt-get install podman -qq
+    - name: build-and-test
+      run: >
+        podman run -v ${{github.workspace}}/src:/work/src -w /work --rm
+        ${{matrix.config.container}} /work/src/robotraconteur_companion/tools/build_files/old_ubuntu_build/old_ubuntu_build.sh
+
+  build-ros:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        ROS_DISTRO:
+        - noetic
+        - humble
+        - jazzy
+        - kilted
+        - rolling
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        path: ws/src/robotraconteur_companion
+        submodules: recursive
+    - uses: actions/checkout@v4
+      with:
+        path: upstream_ws/src/robotraconteur
+        repository: robotraconteur/robotraconteur
+    - name: apt update
+      run: sudo apt update
+    - name: apt
+      run: >
+        sudo apt-get install
+        zlib1g zlib1g-dev libssl-dev libusb-1.0-0 python3-dev python3-numpy
+        libusb-1.0-0-dev libdbus-1-3 libdbus-1-dev libbluetooth3 libbluetooth-dev zlib1g zlib1g-dev
+        git cmake g++ make libboost-all-dev autoconf
+        automake libtool bison libpcre3-dev curl libgtest-dev -qq
+    - run: ./tools/build_files/generated_src/populate_generated_src.bash
+      working-directory: upstream_ws/src/robotraconteur
+    - run: cp tools/build_files/ros/cmake_config_options.cmake .
+      working-directory: upstream_ws/src/robotraconteur
+    - run: cp tools/build_files/ros/cmake_config_options.cmake .
+      working-directory: ws/src/robotraconteur_companion
+    - name: ros industrial-ci
+      uses: ros-industrial/industrial_ci@master
+      env:
+        ROS_DISTRO: ${{ matrix.ROS_DISTRO }}
+        ROS_REPO: main
+        TARGET_WORKSPACE: ws
+        UPSTREAM_WORKSPACE: upstream_ws
+
+  build-ros-prerelease:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        ROS_DISTRO:
+        - humble
+        - jazzy
+        - kilted
+        - rolling
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        path: src/robotraconteur_companion
+        submodules: recursive
+    - name: apt update
+      run: sudo apt update
+    - name: apt
+      run: >
+        sudo apt-get install
+        zlib1g zlib1g-dev libssl-dev libusb-1.0-0 python3-dev python3-numpy
+        libusb-1.0-0-dev libdbus-1-3 libdbus-1-dev libbluetooth3 libbluetooth-dev zlib1g zlib1g-dev
+        git cmake g++ make libboost-all-dev autoconf
+        automake libtool bison libpcre3-dev curl libgtest-dev -qq
+    - run: cp tools/build_files/ros/cmake_config_options.cmake .
+      working-directory: src/robotraconteur_companion
+    - name: ros industrial-ci
+      uses: ros-industrial/industrial_ci@master
+      env:
+        ROS_DISTRO: ${{ matrix.ROS_DISTRO }}
+        ROS_REPO: main
+        PRERELEASE: true
+        ROSDEP_SKIP_KEYS: python3-setuptools

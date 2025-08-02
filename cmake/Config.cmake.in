@@ -1,0 +1,12 @@
+@PACKAGE_INIT@
+
+include("${CMAKE_CURRENT_LIST_DIR}/RobotRaconteurCompanionTargets.cmake")
+
+set(RobotRaconteur_STANDARD_ROBDEF_ROOT_DIR @PACKAGE_CMAKE_INSTALL_DATADIR@/robotraconteur/robdef/standard_robdef/)
+
+set(RobotRaconteur_STANDARD_ROBDEF_SERVICE_NAMES @RR_SERVICE_NAMES@)
+set(RobotRaconteur_STANDARD_ROBDEF_FILES @RR_INSTALLED_ROBDEF@)
+set(RobotRaconteur_STANDARD_ROBDEF_DIRS @RR_INSTALLED_ROBDEF_DIRS@)
+
+find_package(yaml-cpp REQUIRED)
+find_package(Eigen3 3.3 REQUIRED NO_MODULE)
