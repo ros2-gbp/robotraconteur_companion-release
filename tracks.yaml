@@ -110,11 +110,11 @@ tracks:
     patches: null
     release_inc: '4'
     release_repo_url: null
-    release_tag: v0.4.2-ros
+    release_tag: v0.4.3-ros
     ros_distro: lyrical
     vcs_type: git
     vcs_uri: https://github.com/robotraconteur/robotraconteur_companion.git
-    version: 0.4.2
+    version: 0.4.3
   rolling:
     actions:
     - bloom-export-upstream :{vcs_local_uri} :{vcs_type} --tag :{release_tag} --display-uri
