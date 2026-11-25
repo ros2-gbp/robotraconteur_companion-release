@@ -1,3 +1,26 @@
+## robotraconteur_companion (kilted) - 0.4.4-1
+
+The packages in the `robotraconteur_companion` repository were released into the `kilted` distro by running `/usr/bin/bloom-release -r kilted -t kilted robotraconteur_companion -y --no-web` on `Wed, 25 Nov 2026 20:29:25 -0000`
+
+The `robotraconteur_companion` package was released.
+
+Version of package(s) in repository `robotraconteur_companion`:
+
+- upstream repository: https://github.com/robotraconteur/robotraconteur_companion.git
+- release repository: https://github.com/ros2-gbp/robotraconteur_companion-release.git
+- rosdistro version: `0.4.3-1`
+- old version: `0.4.3-1`
+- new version: `0.4.4-1`
+
+Versions of tools used:
+
+- bloom version: `0.14.4`
+- catkin_pkg version: `1.1.1`
+- rosdep version: `0.27.0`
+- rosdistro version: `1.1.0`
+- vcstools version: `0.1.42`
+
+
 ## robotraconteur_companion (jazzy) - 0.4.4-1
 
 The packages in the `robotraconteur_companion` repository were released into the `jazzy` distro by running `/usr/bin/bloom-release -r jazzy -t jazzy robotraconteur_companion -y --no-web` on `Wed, 25 Nov 2026 20:28:33 -0000`
